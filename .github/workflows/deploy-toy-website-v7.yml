@@ -1,13 +1,13 @@
-name: deploy-toy-website-v6
+name: deploy-toy-website-v7
 concurrency: toy-company
 
-on: [workflow_dispatch]
-# on:
-#   push:
-#     branches:
-#       - main
-#     paths:
-#       - 'deploy/**'
+# on: [workflow_dispatch]
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'deploy/**'
 
 permissions:
   id-token: write
@@ -23,7 +23,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Run Bicep linter
-      run: az bicep build --file deploy/main-v6.bicep
+      run: az bicep build --file deploy/main-v7.bicep
 
   validate:
     runs-on: ubuntu-latest
@@ -40,7 +40,7 @@ jobs:
       with:
         deploymentName: ${{ github.run_number }}
         resourceGroupName: ${{ env.AZURE_RESOURCEGROUP_NAME }}
-        template: ./deploy/main-v6.bicep
+        template: ./deploy/main-v7.bicep
         parameters: environmentType=${{ env.ENVIRONMENT }}
         deploymentMode: Validate
 
@@ -60,7 +60,7 @@ jobs:
       with:
         failOnStdErr: false
         resourceGroupName: ${{ env.AZURE_RESOURCEGROUP_NAME }}
-        template: ./deploy/main-v6.bicep
+        template: ./deploy/main-v7.bicep
         parameters: >
           environmentType=${{ env.ENVIRONMENT }}
         additionalArguments: --what-if
@@ -69,6 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: preview
     environment: Website
+    outputs:
+      appServiceAppHostName: ${{ steps.deploy.outputs.appServiceAppHostName }}
     steps:
     - uses: actions/checkout@v3
     - uses: azure/login@v1
@@ -79,9 +81,25 @@ jobs:
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     - uses: azure/arm-deploy@v1
       name: Deploy website
+      id: deploy
       with:
         failOnStdErr: false
         deploymentName: ${{ github.run_number }}
         resourceGroupName: ${{ env.AZURE_RESOURCEGROUP_NAME }}
-        template: ./deploy/main-v6.bicep
+        template: ./deploy/main-v7.bicep
         parameters: environmentType=${{ env.ENVIRONMENT }}
+  
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+    - uses: actions/checkout@v3
+    - run: |
+        $container = New-PesterContainer `
+          -Path 'deploy/Website.Tests.ps1' `
+          -Data @{ HostName = '${{needs.deploy.outputs.appServiceAppHostName}}' }
+        Invoke-Pester `
+          -Container $container `
+          -CI
+      name: Run smoke tests
+      shell: pwsh
